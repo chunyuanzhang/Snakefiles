@@ -1,0 +1,91 @@
+import pandas as pd
+import numpy as np
+import yaml
+import json
+
+
+# === 参数 ==========================================
+tool = "aria2c" # prefetch
+
+
+# === 元信息 =========================================
+infotable = "list.txt"
+
+# infotable文件内容示意，为了代码重复使用方便，infotable不要列名
+# 第一列是文件SRR ID，第二列是我们想要输出的文件名
+
+# SRR28981165,Wild_1W_F3
+# SRR28981166,Wild_1W_F2
+# SRR28981167,Wild_1W_F1
+# SRR28981168,White_1W_F3
+# SRR28981169,White_1W_F2
+# SRR28981170,White_1W_F1
+
+
+
+
+# === 外部参数处理 ===================================
+
+if os.path.exists(infotable):
+    metainfo = pd.read_csv(infotable, sep = ",", dtype=str, index_col = False, header=None)
+    metainfo.dropna(how='all', inplace=True) # 删除可能存在的空行
+    metainfo.columns = [f'V{i+1}' for i in range(len(metainfo.columns))]
+    metainfo = metainfo[ ~np.array([v.startswith("#") for v in metainfo.V1.to_list()])]  # 删除被#注释掉的行
+    # metainfo.index = metainfo.V1
+
+    outname_to_srr = dict(zip(metainfo.V2, metainfo.V1)) # 由于我们使用输出文件名做循环，因此将输出文件名作为字典的键
+    
+    # 使用glob_wildcards定义可用的通配符值
+    OUTNAMES = metainfo.V2.tolist()
+
+    # 设置wildcard约束
+    wildcard_constraints:
+        outname = "|".join(OUTNAMES)
+    
+
+
+# === rules =========================================
+# Determine the {outname} for all output files
+(OUTNAMES,) = glob_wildcards("{outname}.sra")
+
+rule all:
+    input:
+        expand("{outname}.sra", outname=metainfo.V2.tolist())
+
+
+if tool == "aria2c":
+    rule aria2c_srafile:
+        input: 
+            infotable
+        output:
+            srafile = "{outname}.sra"
+        params:
+            SRRID = lambda wildcards: outname_to_srr.get(wildcards.outname)
+        threads:
+            8
+        shell:
+            """
+            echo "Downloading SRA file for {params.SRRID}..."
+            esearch -db sra -query {params.SRRID} | efetch -format runinfo > {params.SRRID}.runinfo
+            sralitepath=$(cat {params.SRRID}.runinfo | sed '1d' | sed 's/,/\\n/g' | grep https)
+            echo "Download URL: $sralitepath"
+            aria2c -x16 "$sralitepath" -d ./ -o {output.srafile}
+            rm {params.SRRID}.runinfo
+            """
+
+elif tool == "prefetch":
+    rule prefetch_srafile:
+        input:
+            infotable
+        output:
+            srafile = "{outname}.sra"
+        params:
+            SRRID = lambda wildcards: outname_to_srr.get(wildcards.outname)
+        threads:
+            4
+        shell:
+            """
+            echo "Using prefetch to download {params.SRRID}..."
+            prefetch {params.SRRID} --output-file {output.srafile}
+            """
+
