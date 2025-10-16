@@ -1,0 +1,29 @@
+import pandas as pd
+import numpy as np
+
+
+infotable = "single_pairdata.txt"
+
+if os.path.exists(infotable):
+    metainfo = pd.read_csv(infotable, sep = ",", dtype=str, index_col = False, header=None)
+    metainfo.dropna(how='all', inplace=True) # 删除可能存在的空行
+    metainfo.columns = [f'V{i+1}' for i in range(len(metainfo.columns))]
+    metainfo = metainfo[ ~np.array([v.startswith("#") for v in metainfo.V1.to_list()])]  # 删除被#注释掉的行
+    samples = metainfo.V1
+
+
+rule all:
+    input:
+        expand("{sample}_{R}.fastq", sample = samples, R=[1,2])
+    
+
+rule fastqdump:
+    input:
+        SRR = "{sample}"
+    output:
+        fastq1 = "{sample}_1.fastq",
+        fastq2 = "{sample}_2.fastq"
+    shell:
+        """
+        /home/zhangchunyuan/tools/sratoolkit.3.2.1-ubuntu64/bin/fastq-dump --split-3  {input.SRR}
+        """
