@@ -1,0 +1,46 @@
+import pandas as pd
+import numpy as np
+
+infotable = "list.txt"
+
+# list.txt文件中只有一列，一行一个文件名，md5文件默认在原文件名的基础上添加.md5后缀
+# G24_F_HQ_R2.fq.gz
+# GF11_F_HQ_R1.fq.gz
+
+if os.path.exists(infotable):
+    metainfo = pd.read_csv(infotable, sep = ",", dtype=str, index_col = False, header=None)
+    metainfo.dropna(how='all', inplace=True) # 删除可能存在的空行
+    metainfo.columns = [f'V{i+1}' for i in range(len(metainfo.columns))]
+    metainfo = metainfo[ ~np.array([v.startswith("#") for v in metainfo.V1.to_list()])]  # 删除被#注释掉的行
+    files = metainfo.V1.tolist()
+
+else:
+    files = []
+
+
+rule all:
+    input:
+        expand("{file}.done", file=files),
+
+
+rule check_md5:
+    input:
+        fastq = "{file}",
+        md5file = "{file}.md5"
+    output:
+        flag = "{file}.done"
+    shell:
+        """
+        # 检查MD5值
+        md5sum -c {input.md5file} 
+        
+        # 如果检查通过，创建完成标记文件
+        if [ $? -eq 0 ]; then
+            echo "MD5 check passed for {input.fastq}" > {output.flag}
+            echo "PASS" >> {output.flag}
+        else
+            echo "MD5 check FAILED for {input.fastq}" > {output.flag}
+            echo "FAILED" >> {output.flag}
+            exit 1
+        fi
+        """
